@@ -1,0 +1,8 @@
+services:
+  flask:
+    build: ./flask-app
+    container_name: bi_flask_app
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./flask-app:/app
