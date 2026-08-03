@@ -19,14 +19,14 @@ Built with **Flask + scikit-learn + Facebook Prophet** and deployed via **Docker
 
 ## ✨ Features
 
-| Module | Technique | Endpoint |
-|---|---|---|
-| 📦 **Product Performance Analysis** | K-Means clustering + weighted scoring | `POST /api/product-analysis` |
-| 👥 **Employee Performance Evaluation** | K-Means + Isolation Forest anomaly detection | `POST /api/analyze` |
-| 📈 **Sales Forecast** | Linear Regression with train/test split | `GET /api/sales-forecast` |
-| 🔮 **Prophet Forecast** | Facebook Prophet (seasonality + trend) | `GET /api/prophet-forecast` |
-| 🛒 **Product Recommendations** | KNN content-based + collaborative filtering + trending | `POST /api/recommendations/products` |
-| 🧺 **Market Basket Analysis** | Apriori algorithm (frequent itemsets + association rules) | `GET /api/product-combos` |
+| Module                                 | Technique                                                 | Endpoint                             |
+| -------------------------------------- | --------------------------------------------------------- | ------------------------------------ |
+| 📦 **Product Performance Analysis**    | K-Means clustering + weighted scoring                     | `POST /api/product-analysis`         |
+| 👥 **Employee Performance Evaluation** | K-Means + Isolation Forest anomaly detection              | `POST /api/analyze`                  |
+| 📈 **Sales Forecast**                  | Linear Regression with train/test split                   | `GET /api/sales-forecast`            |
+| 🔮 **Prophet Forecast**                | Facebook Prophet (seasonality + trend)                    | `GET /api/prophet-forecast`          |
+| 🛒 **Product Recommendations**         | KNN content-based + collaborative filtering + trending    | `POST /api/recommendations/products` |
+| 🧺 **Market Basket Analysis**          | Apriori algorithm (frequent itemsets + association rules) | `GET /api/product-combos`            |
 
 ---
 
@@ -35,22 +35,28 @@ Built with **Flask + scikit-learn + Facebook Prophet** and deployed via **Docker
 Sample dashboards rendered from each endpoint (synthetic data; generators in `docs/tools/*.py`, full write-ups in `docs/models/`):
 
 **Module 1 — Product Performance Analysis**
-<p align="center"><img src="docs/images/01-product-analysis-dashboard.png" alt="Product Analysis dashboard" width="100%"/></p>
+
+<p align="center"><img src="screenshots/01-product-analysis-dashboard.png" alt="Product Analysis dashboard" width="100%"/></p>
 
 **Module 2 — Employee Performance Evaluation**
-<p align="center"><img src="docs/images/02-employee-performance-dashboard.png" alt="Employee Performance dashboard" width="100%"/></p>
+
+<p align="center"><img src="screenshots/02-employee-performance-dashboard.png" alt="Employee Performance dashboard" width="100%"/></p>
 
 **Module 3 — Sales Forecast (Linear Regression)**
-<p align="center"><img src="docs/images/03-sales-forecast-dashboard.png" alt="Sales Forecast dashboard" width="100%"/></p>
+
+<p align="center"><img src="screenshots/03-sales-forecast-dashboard.png" alt="Sales Forecast dashboard" width="100%"/></p>
 
 **Module 4 — Sales Forecast (Facebook Prophet)**
-<p align="center"><img src="docs/images/04-prophet-forecast-dashboard.png" alt="Prophet Forecast dashboard" width="100%"/></p>
+
+<p align="center"><img src="screenshots/04-prophet-forecast-dashboard.png" alt="Prophet Forecast dashboard" width="100%"/></p>
 
 **Module 5 — Product Recommendations**
-<p align="center"><img src="docs/images/05-product-recommendations-dashboard.png" alt="Product Recommendations dashboard" width="100%"/></p>
+
+<p align="center"><img src="screenshots/05-product-recommendations-dashboard.png" alt="Product Recommendations dashboard" width="100%"/></p>
 
 **Module 6 — Market Basket Analysis (Apriori)**
-<p align="center"><img src="docs/images/06-product-combos-dashboard.png" alt="Market Basket Analysis dashboard" width="100%"/></p>
+
+<p align="center"><img src="screenshots/06-product-combos-dashboard.png" alt="Market Basket Analysis dashboard" width="100%"/></p>
 
 ---
 
@@ -120,10 +126,10 @@ docker network create erp-system_default
 docker compose up -d
 ```
 
-| Service | Port | URL |
-|---|---|---|
+| Service   | Port   | URL                     |
+| --------- | ------ | ----------------------- |
 | Flask API | `5001` | `http://localhost:5001` |
-| Nginx | `5002` | `http://localhost:5002` |
+| Nginx     | `5002` | `http://localhost:5002` |
 
 ### 3. Check Health
 
@@ -137,6 +143,7 @@ curl http://localhost:5001/
 ## 📡 API Reference
 
 ### `POST /api/product-analysis`
+
 Analyzes all active products using K-Means clustering + weighted scoring (revenue, stock ratio, sales velocity, profit margin).
 
 ```json
@@ -150,30 +157,36 @@ Analyzes all active products using K-Means clustering + weighted scoring (revenu
 ```
 
 ### `POST /api/analyze`
+
 Evaluates employee performance based on task completion rates, task velocity, and identifies anomalies (Isolation Forest).
 
 ### `GET /api/sales-forecast`
+
 Linear regression forecast for next month's revenue. Returns historical monthly aggregated sales + prediction with confidence interval.
 
 ### `GET /api/prophet-forecast`
+
 Facebook Prophet forecast. Parameters: `?periods=12` (1–60 months). Returns historical fit, future forecast, trend decomposition, and summary metrics.
 
 ### `POST /api/recommendations/products`
+
 Multiple recommendation strategies via JSON body:
 
 ```json
 {
   "strategy": "popular|trending|content_based|collaborative|personalized",
-  "product_id": 123,   // for content_based
-  "user_id": 456,       // for collaborative / personalized
+  "product_id": 123, // for content_based
+  "user_id": 456, // for collaborative / personalized
   "limit": 10
 }
 ```
 
 ### `POST /api/recommendations/train`
+
 Manually retrain the recommendation models (KNN + collaborative filtering).
 
 ### `GET /api/product-combos`
+
 Runs Apriori algorithm on completed sales transactions. Returns frequent itemsets and association rules (lift, confidence, support).
 
 ---
