@@ -1,12 +1,11 @@
 import os
 import numpy as np
 import pandas as pd
-import joblib
-from flask import Blueprint, jsonify, request
-from flask_cors import cross_origin
+from flask import Blueprint, jsonify, request, current_app
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cluster import KMeans
 from models import db, Product, Stock, SaleDetail, Sale, Review
+from cache_utils import save_joblib_atomic
 
 product_analysis_bp = Blueprint('product_analysis', __name__)
 
@@ -107,8 +106,8 @@ def analyze_products(df):
     df['performance_tier'] = df['cluster'].map(tier_map)
 
     try:
-        joblib.dump(scaler, os.path.join(MODEL_DIR, 'product_scaler.joblib'))
-        joblib.dump(kmeans, os.path.join(MODEL_DIR, 'product_kmeans.joblib'))
+        save_joblib_atomic(scaler, 'product_scaler.joblib')
+        save_joblib_atomic(kmeans, 'product_kmeans.joblib')
     except Exception:
         pass
 
@@ -116,7 +115,6 @@ def analyze_products(df):
 
 
 @product_analysis_bp.route('/product-analysis', methods=['GET', 'POST'])
-@cross_origin()
 def analyze():
     try:
         df = fetch_product_data()
@@ -151,5 +149,6 @@ def analyze():
             'model_version': '2.0'
         })
 
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+    except Exception:
+        current_app.logger.exception('product analysis failed')
+        return jsonify({'status': 'error', 'message': 'internal error'}), 500

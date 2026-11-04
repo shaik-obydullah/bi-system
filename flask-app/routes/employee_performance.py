@@ -1,13 +1,12 @@
 import os
 import numpy as np
 import pandas as pd
-import joblib
-from flask import Blueprint, jsonify
-from flask_cors import cross_origin
+from flask import Blueprint, jsonify, current_app
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.cluster import KMeans
 from sklearn.ensemble import IsolationForest
 from models import db, Employee, TaskManagement
+from cache_utils import save_joblib_atomic
 
 employee_bp = Blueprint('employee_performance', __name__)
 
@@ -89,9 +88,9 @@ def analyze_performance(df):
     df['performance_tier'] = df['performance_tier'].astype(str)
 
     try:
-        joblib.dump(scaler, os.path.join(MODEL_DIR, 'emp_scaler.joblib'))
-        joblib.dump(kmeans, os.path.join(MODEL_DIR, 'emp_kmeans.joblib'))
-        joblib.dump(iso, os.path.join(MODEL_DIR, 'emp_isolation.joblib'))
+        save_joblib_atomic(scaler, 'emp_scaler.joblib')
+        save_joblib_atomic(kmeans, 'emp_kmeans.joblib')
+        save_joblib_atomic(iso, 'emp_isolation.joblib')
     except Exception:
         pass
 
@@ -99,7 +98,6 @@ def analyze_performance(df):
 
 
 @employee_bp.route('/analyze', methods=['POST'])
-@cross_origin()
 def analyze():
     try:
         df = fetch_employee_data()
@@ -132,5 +130,6 @@ def analyze():
             'model_version': '2.0'
         })
 
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+    except Exception:
+        current_app.logger.exception('employee performance analysis failed')
+        return jsonify({'status': 'error', 'message': 'internal error'}), 500

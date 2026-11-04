@@ -1,11 +1,11 @@
 import os
+import threading
 import numpy as np
 import pandas as pd
-import joblib
 from datetime import datetime, timedelta
-from flask import Blueprint, jsonify, request
-from flask_cors import cross_origin
+from flask import Blueprint, jsonify, request, current_app
 from models import db, Transaction
+from cache_utils import read_cache, write_cache, save_joblib_atomic
 
 try:
     from prophet import Prophet
@@ -17,6 +17,15 @@ prophet_bp = Blueprint('prophet_forecast', __name__)
 
 MODEL_DIR = os.getenv('MODEL_DIR', 'ml_models')
 os.makedirs(MODEL_DIR, exist_ok=True)
+
+DEFAULT_PERIODS = 12
+CACHE_TTL = int(os.getenv('FORECAST_CACHE_TTL', '21600'))
+
+_refresh_lock = threading.Lock()
+
+
+def cache_key(periods):
+    return f'prophet_forecast_{periods}'
 
 
 def fetch_monthly_sales():
@@ -136,7 +145,7 @@ def prophet_forecast(monthly_sales, periods=12):
         forecast_growth = ((forecast_values[0] - last_month) / last_month) * 100
 
     try:
-        joblib.dump(model, os.path.join(MODEL_DIR, 'prophet_model.joblib'))
+        save_joblib_atomic(model, 'prophet_model.joblib')
     except Exception:
         pass
 
@@ -157,42 +166,61 @@ def prophet_forecast(monthly_sales, periods=12):
     return result, None
 
 
+def build_payload(periods):
+    """Return ``(payload, http_status)`` for the given forecast horizon."""
+    monthly = fetch_monthly_sales()
+
+    if monthly.empty:
+        return {
+            'status': 'success',
+            'data': None,
+            'message': 'No sales data available for forecasting',
+            'model_version': '2.0'
+        }, 200
+
+    result, error = prophet_forecast(monthly, periods=periods)
+
+    if error:
+        return {
+            'status': 'error',
+            'message': error
+        }, 400
+
+    return {
+        'status': 'success',
+        'data': result,
+        'model_version': '2.0'
+    }, 200
+
+
+def refresh(periods=DEFAULT_PERIODS):
+    """Recompute and cache the forecast for ``periods`` months."""
+    with _refresh_lock:
+        payload, status_code = build_payload(periods)
+        if status_code == 200 and payload.get('status') == 'success':
+            write_cache(cache_key(periods), payload)
+        return payload, status_code
+
+
 @prophet_bp.route('/prophet-forecast', methods=['GET'])
-@cross_origin()
 def forecast():
     try:
+        periods = request.args.get('periods', DEFAULT_PERIODS, type=int)
+        periods = min(max(periods, 1), 60)
+
+        cached = read_cache(cache_key(periods), max_age=CACHE_TTL)
+        if cached is not None:
+            return jsonify(cached)
+
         if not PROPHET_AVAILABLE:
             return jsonify({
                 'status': 'error',
                 'message': 'Facebook Prophet is not installed'
             }), 503
 
-        periods = request.args.get('periods', 12, type=int)
-        periods = min(max(periods, 1), 60)
+        payload, status_code = refresh(periods)
+        return jsonify(payload), status_code
 
-        monthly = fetch_monthly_sales()
-
-        if monthly.empty:
-            return jsonify({
-                'status': 'success',
-                'data': None,
-                'message': 'No sales data available for forecasting',
-                'model_version': '2.0'
-            })
-
-        result, error = prophet_forecast(monthly, periods=periods)
-
-        if error:
-            return jsonify({
-                'status': 'error',
-                'message': error
-            }), 400
-
-        return jsonify({
-            'status': 'success',
-            'data': result,
-            'model_version': '2.0'
-        })
-
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+    except Exception:
+        current_app.logger.exception('prophet-forecast failed')
+        return jsonify({'status': 'error', 'message': 'internal error'}), 500

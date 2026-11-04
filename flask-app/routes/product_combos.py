@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
-from flask import Blueprint, jsonify
-from flask_cors import cross_origin
+from flask import Blueprint, jsonify, current_app
 from mlxtend.frequent_patterns import apriori, association_rules
 from models import db, Sale, SaleDetail, Stock
 
@@ -129,7 +128,6 @@ def run_apriori(basket_df, all_products):
 
 
 @combo_bp.route('/product-combos', methods=['GET'])
-@cross_origin()
 def combos():
     try:
         basket_df, all_products = fetch_transaction_baskets()
@@ -141,5 +139,6 @@ def combos():
             'model_version': '2.0'
         })
 
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+    except Exception:
+        current_app.logger.exception('product combos failed')
+        return jsonify({'status': 'error', 'message': 'internal error'}), 500

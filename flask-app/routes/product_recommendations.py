@@ -2,11 +2,11 @@ import os
 import numpy as np
 import pandas as pd
 import joblib
-from flask import Blueprint, jsonify, request
-from flask_cors import cross_origin
+from flask import Blueprint, jsonify, request, current_app
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import StandardScaler
 from models import db, Product, Stock, SaleDetail, Sale, Review, User
+from cache_utils import save_joblib_atomic
 
 try:
     from surprise import Dataset, Reader, KNNBasic
@@ -19,7 +19,21 @@ recommendation_bp = Blueprint('recommendations', __name__)
 MODEL_DIR = os.getenv('MODEL_DIR', 'ml_models')
 os.makedirs(MODEL_DIR, exist_ok=True)
 
+VALID_STRATEGIES = {
+    'popular', 'trending', 'content_based', 'collaborative',
+    'personalized', 'similar_users',
+}
+
 _models = {'knn': None, 'collab': None, 'scaler': None, 'trained': False}
+
+
+def _as_int(value):
+    if value is None or value == '':
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def prepare_product_features():
@@ -144,9 +158,9 @@ def train_models():
     _models['trained'] = True
 
     try:
-        joblib.dump({'knn': knn, 'scaler': scaler}, os.path.join(MODEL_DIR, 'recommendation.joblib'))
+        save_joblib_atomic({'knn': knn, 'scaler': scaler}, 'recommendation.joblib')
         if collab_model:
-            joblib.dump(collab_model, os.path.join(MODEL_DIR, 'collab_filter.joblib'))
+            save_joblib_atomic(collab_model, 'collab_filter.joblib')
     except Exception:
         pass
 
@@ -308,7 +322,6 @@ def get_personalized_recommendations(user_id, limit=10):
 
 
 @recommendation_bp.route('/recommendations/train', methods=['POST'])
-@cross_origin()
 def train():
     result = train_models()
     status_code = 200 if result.get('status') == 'success' else 400
@@ -316,14 +329,27 @@ def train():
 
 
 @recommendation_bp.route('/recommendations/products', methods=['POST'])
-@cross_origin()
 def recommend():
     try:
-        data = request.get_json() or {}
+        data = request.get_json(silent=True) or {}
+        if not isinstance(data, dict):
+            return jsonify({'status': 'error', 'message': 'invalid JSON body'}), 400
+
         strategy = data.get('strategy', 'popular')
-        product_id = data.get('product_id')
-        user_id = data.get('user_id')
-        limit = min(data.get('limit', 10), 50)
+        if strategy not in VALID_STRATEGIES:
+            return jsonify({
+                'status': 'error',
+                'message': f'unknown strategy, expected one of: {sorted(VALID_STRATEGIES)}'
+            }), 400
+
+        try:
+            limit = int(data.get('limit', 10))
+        except (TypeError, ValueError):
+            return jsonify({'status': 'error', 'message': 'limit must be an integer'}), 400
+        limit = max(1, min(limit, 50))
+
+        product_id = _as_int(data.get('product_id'))
+        user_id = _as_int(data.get('user_id'))
 
         load_or_train()
 
@@ -350,5 +376,6 @@ def recommend():
             'model_version': '2.0'
         })
 
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+    except Exception:
+        current_app.logger.exception('recommendation request failed')
+        return jsonify({'status': 'error', 'message': 'internal error'}), 500

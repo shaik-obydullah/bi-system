@@ -2,26 +2,48 @@ services:
   bi_flask:
     build: ./flask-app
     container_name: bi_flask
-    ports:
-      - "5001:5000"
+    # Internal-only: reachable on the ERP network as bi_flask:5000.
+    # Do not publish this port to the host; callers go through bi_nginx.
+    expose:
+      - "5000"
     volumes:
       - ./flask-app:/app
     env_file:
       - ./flask-app/.env
     networks:
       - erp-system_default
-    depends_on:
-      - bi_nginx
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=5)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   bi_nginx:
     image: nginx:stable-alpine
     container_name: bi_nginx
-    ports:
-      - "5002:80"
+    # Internal-only: reachable on the ERP network as bi_nginx:80.
+    expose:
+      - "80"
     volumes:
-      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - erp-system_default
+    depends_on:
+      bi_flask:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
 networks:
   erp-system_default:

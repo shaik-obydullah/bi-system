@@ -1,19 +1,24 @@
 import os
+import threading
 import numpy as np
 import pandas as pd
-import joblib
 from datetime import datetime
-from flask import Blueprint, jsonify
-from flask_cors import cross_origin
+from flask import Blueprint, jsonify, current_app
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error
 from models import db, Transaction
+from cache_utils import read_cache, write_cache, save_joblib_atomic
 
 sales_bp = Blueprint('sales_forecast', __name__)
 
 MODEL_DIR = os.getenv('MODEL_DIR', 'ml_models')
 os.makedirs(MODEL_DIR, exist_ok=True)
+
+CACHE_KEY = 'sales_forecast'
+CACHE_TTL = int(os.getenv('FORECAST_CACHE_TTL', '21600'))
+
+_refresh_lock = threading.Lock()
 
 
 def fetch_monthly_sales():
@@ -98,10 +103,7 @@ def calculate_forecast(monthly_sales):
     confidence = min(90 + (len(monthly_sales) * 2), 95)
 
     try:
-        joblib.dump({
-            'model': model,
-            'scaler': scaler
-        }, os.path.join(MODEL_DIR, 'sales_forecast.joblib'))
+        save_joblib_atomic({'model': model, 'scaler': scaler}, 'sales_forecast.joblib')
     except Exception:
         pass
 
@@ -116,49 +118,68 @@ def calculate_forecast(monthly_sales):
     }
 
 
-@sales_bp.route('/sales-forecast', methods=['GET'])
-@cross_origin()
-def forecast():
-    try:
-        monthly = fetch_monthly_sales()
+def build_payload():
+    """Compute the sales forecast response payload (same shape as before)."""
+    monthly = fetch_monthly_sales()
 
-        if monthly.empty:
-            return jsonify({
-                'status': 'success',
-                'data': {
-                    'actual_sales': [],
-                    'forecast': {
-                        'next_month_forecast': 0,
-                        'confidence_level': 0,
-                        'expected_range_low': 0,
-                        'expected_range_high': 0,
-                        'growth_rate': 0,
-                        'model_accuracy': 0,
-                    }
-                },
-                'message': 'No sales data available',
-                'model_version': '2.0'
-            })
-
-        forecast_result = calculate_forecast(monthly)
-
-        summary = {
-            'total_months': len(monthly),
-            'total_revenue': round(float(monthly['total_sales'].sum()), 2),
-            'avg_monthly': round(float(monthly['total_sales'].mean()), 2),
-            'best_month': monthly.loc[monthly['total_sales'].idxmax(), 'month'] if len(monthly) > 0 else None,
-            'worst_month': monthly.loc[monthly['total_sales'].idxmin(), 'month'] if len(monthly) > 0 else None,
-        }
-
-        return jsonify({
+    if monthly.empty:
+        return {
             'status': 'success',
             'data': {
-                'actual_sales': forecast_result.pop('history', []),
-                'forecast': forecast_result,
+                'actual_sales': [],
+                'forecast': {
+                    'next_month_forecast': 0,
+                    'confidence_level': 0,
+                    'expected_range_low': 0,
+                    'expected_range_high': 0,
+                    'growth_rate': 0,
+                    'model_accuracy': 0,
+                }
             },
-            'summary': summary,
+            'message': 'No sales data available',
             'model_version': '2.0'
-        })
+        }
 
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+    forecast_result = calculate_forecast(monthly)
+
+    summary = {
+        'total_months': len(monthly),
+        'total_revenue': round(float(monthly['total_sales'].sum()), 2),
+        'avg_monthly': round(float(monthly['total_sales'].mean()), 2),
+        'best_month': monthly.loc[monthly['total_sales'].idxmax(), 'month'] if len(monthly) > 0 else None,
+        'worst_month': monthly.loc[monthly['total_sales'].idxmin(), 'month'] if len(monthly) > 0 else None,
+    }
+
+    return {
+        'status': 'success',
+        'data': {
+            'actual_sales': forecast_result.pop('history', []),
+            'forecast': forecast_result,
+        },
+        'summary': summary,
+        'model_version': '2.0'
+    }
+
+
+def refresh():
+    """Recompute the forecast and persist it to the shared cache."""
+    with _refresh_lock:
+        payload = build_payload()
+        if payload.get('status') == 'success':
+            write_cache(CACHE_KEY, payload)
+        return payload
+
+
+@sales_bp.route('/sales-forecast', methods=['GET'])
+def forecast():
+    try:
+        cached = read_cache(CACHE_KEY, max_age=CACHE_TTL)
+        if cached is not None:
+            return jsonify(cached)
+
+        return jsonify(refresh())
+
+    except Exception:
+        current_app.logger.exception('sales-forecast failed')
+        return jsonify({'status': 'error', 'message': 'internal error'}), 500
+

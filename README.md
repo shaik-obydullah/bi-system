@@ -104,14 +104,28 @@ git clone <repo-url>
 cd bi-system
 ```
 
-Edit `flask-app/.env` to point to your database:
+Create `flask-app/.env` from the template and point it at your database:
+
+```bash
+cp flask-app/.env.example flask-app/.env
+```
 
 ```env
 DB_HOST=your_mariadb_host
 DB_PORT=3306
 DB_NAME=laravel_db
-DB_USER=root
-DB_PASSWORD=root
+DB_USER=bi_ro
+DB_PASSWORD=your_password
+
+# Required: every API call must send this value in the X-API-Key header.
+BI_API_KEY=$(openssl rand -hex 32)
+```
+
+Use a SELECT-only MariaDB account for `DB_USER`:
+
+```sql
+CREATE USER 'bi_ro'@'%' IDENTIFIED BY 'your_password';
+GRANT SELECT ON laravel_db.* TO 'bi_ro'@'%';
 ```
 
 Ensure the network `erp-system_default` exists (or change `docker-compose.yml`):
@@ -126,23 +140,40 @@ docker network create erp-system_default
 docker compose up -d
 ```
 
-| Service   | Port   | URL                     |
-| --------- | ------ | ----------------------- |
-| Flask API | `5001` | `http://localhost:5001` |
-| Nginx     | `5002` | `http://localhost:5002` |
+| Service   | Address (Docker network) | Host port |
+| --------- | ------------------------ | --------- |
+| Flask API | `http://bi_flask:5000`   | none      |
+| Nginx     | `http://bi_nginx:80`     | none      |
+
+The containers publish **no host ports** — this is an internal service. Point the
+Laravel app at `http://bi_nginx:80` on the `erp-system_default` network.
 
 ### 3. Check Health
 
+`/health` is the only endpoint that does not require an API key:
+
 ```bash
-curl http://localhost:5001/
-# {"status":"ok","service":"BI System","endpoints":[...]}
+docker compose exec bi_nginx wget -qO- http://localhost/health
+# {"status":"ok","checks":{"database":"ok","model_dir":"ok"},"model_version":"2.0"}
 ```
+
+For local debugging you can temporarily re-add `ports: ["5002:80"]` to `bi_nginx`.
 
 ---
 
 ## 📡 API Reference
 
-### `POST /api/product-analysis`
+All endpoints are available under `/api/v1` (preferred) and `/api` (temporary
+legacy alias, disable with `ENABLE_LEGACY_API=0`). Every request except `/` and
+`/health` requires the API key:
+
+```bash
+curl -H "X-API-Key: $BI_API_KEY" http://bi_nginx:80/api/v1/sales-forecast
+```
+
+Responses always include `X-Request-ID`; send your own to correlate logs.
+
+### `POST /api/v1/product-analysis`
 
 Analyzes all active products using K-Means clustering + weighted scoring (revenue, stock ratio, sales velocity, profit margin).
 
@@ -156,19 +187,19 @@ Analyzes all active products using K-Means clustering + weighted scoring (revenu
 }
 ```
 
-### `POST /api/analyze`
+### `POST /api/v1/analyze`
 
 Evaluates employee performance based on task completion rates, task velocity, and identifies anomalies (Isolation Forest).
 
-### `GET /api/sales-forecast`
+### `GET /api/v1/sales-forecast`
 
 Linear regression forecast for next month's revenue. Returns historical monthly aggregated sales + prediction with confidence interval.
 
-### `GET /api/prophet-forecast`
+### `GET /api/v1/prophet-forecast`
 
 Facebook Prophet forecast. Parameters: `?periods=12` (1–60 months). Returns historical fit, future forecast, trend decomposition, and summary metrics.
 
-### `POST /api/recommendations/products`
+### `POST /api/v1/recommendations/products`
 
 Multiple recommendation strategies via JSON body:
 
@@ -181,13 +212,31 @@ Multiple recommendation strategies via JSON body:
 }
 ```
 
-### `POST /api/recommendations/train`
+### `POST /api/v1/recommendations/train`
 
 Manually retrain the recommendation models (KNN + collaborative filtering).
 
-### `GET /api/product-combos`
+### `GET /api/v1/product-combos`
 
 Runs Apriori algorithm on completed sales transactions. Returns frequent itemsets and association rules (lift, confidence, support).
+
+### `POST /api/v1/internal/refresh`
+
+Recomputes the expensive payloads and writes them to the shared cache. Intended
+for the ERP scheduler, not for dashboards. Optional `?targets=sales,prophet,recommendations`
+(a comma-separated subset; default is all). Returns `200` with `status:
+success|partial`, or `500` when every target failed. Concurrent calls return `409`.
+
+```php
+// Laravel: run nightly so dashboard requests stay fast
+$schedule->call(fn () => Http::withHeaders(['X-API-Key' => config('services.bi.key')])
+    ->timeout(300)
+    ->post(config('services.bi.url').'/api/v1/internal/refresh'))->dailyAt('02:00');
+```
+
+### `GET /api/v1/internal/cache-status`
+
+Reports the age in seconds of the cached forecast payloads.
 
 ---
 
@@ -202,7 +251,8 @@ bi-system/
 │   ├── Dockerfile              # Python 3.11 + Prophet + dependencies
 │   ├── requirements.txt
 │   ├── .env                    # DB credentials (not committed)
-│   ├── app.py                  # Flask app factory, blueprint registration
+│   ├── app.py                  # Flask app factory, auth, health, blueprint registration
+│   ├── cache_utils.py          # Atomic JSON cache + .joblib writes
 │   ├── models/
 │   │   └── __init__.py         # All SQLAlchemy ORM models (15 tables)
 │   ├── routes/
@@ -212,8 +262,9 @@ bi-system/
 │   │   ├── product_recommendations.py # KNN + collaborative + trending
 │   │   ├── product_combos.py          # Apriori association rules
 │   │   ├── sales_forecast.py          # Linear Regression
-│   │   └── prophet_forecast.py        # Facebook Prophet
-│   └── ml_models/              # Trained .joblib models (gitignored)
+│   │   ├── prophet_forecast.py        # Facebook Prophet
+│   │   └── internal.py                # Cache refresh + cache status
+│   └── ml_models/              # Trained .joblib models + cached JSON payloads
 ├── docs/                       # Module documentation, dashboard images, HTML export
 │   ├── models/                 # In-depth per-module write-ups (Markdown)
 │   ├── images/                 # Generated demo dashboard PNGs
@@ -228,7 +279,13 @@ bi-system/
 
 ## 🏷️ Model Versioning
 
-All endpoints return `"model_version": "2.0"`. Models retrain on every request (except recommendation models which use lazy loading). Trained models are persisted to `ml_models/*.joblib`.
+All endpoints return `"model_version": "2.0"`. Forecast payloads (`sales-forecast`,
+`prophet-forecast`) are cached for `FORECAST_CACHE_TTL` seconds (default 6 h) and
+recomputed by `POST /api/v1/internal/refresh`, so dashboard requests never block
+on a model fit. Product, employee, and combo analyses still compute per request;
+recommendation models load lazily from `ml_models/*.joblib`. Model files and
+cache payloads are written atomically so concurrent workers cannot read a
+half-written file.
 
 ---
 
