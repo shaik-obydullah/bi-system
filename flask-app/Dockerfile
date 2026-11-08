@@ -14,6 +14,14 @@ RUN pip install --no-cache-dir --upgrade pip && \
     CMDSTAN_VER=$(ls /root/.cmdstan/ | head -1) && \
     ln -sf "/root/.cmdstan/${CMDSTAN_VER}" /usr/local/lib/python3.11/site-packages/prophet/stan_model/cmdstan-2.33.1
 
+# Prophet 1.1.5 expects a cmdstan install at stan_model/cmdstan-2.33.1. The
+# `ln` above lands *inside* that directory when the wheel already ships one,
+# leaving it without a makefile. Replace it with a real symlink to the cmdstan
+# that cmdstanpy installed.
+RUN CMDSTAN_VER=$(ls /root/.cmdstan/ | head -1) && \
+    rm -rf /usr/local/lib/python3.11/site-packages/prophet/stan_model/cmdstan-2.33.1 && \
+    ln -s "/root/.cmdstan/${CMDSTAN_VER}" /usr/local/lib/python3.11/site-packages/prophet/stan_model/cmdstan-2.33.1
+
 COPY . .
 
 EXPOSE 5000

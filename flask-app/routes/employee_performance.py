@@ -72,11 +72,18 @@ def analyze_performance(df):
     iso = IsolationForest(contamination=min(0.05, max(0.01, 1 / len(df))), random_state=42)
     df['anomaly'] = iso.fit_predict(X_scaled) == -1
 
-    mm = MinMaxScaler(feature_range=(0, 100))
+    # Scale each signal independently to 0..1, then combine into a 0..100 score.
+    # Reusing one scaler (and a 0..100 range) made the weighted sum negative and
+    # then multiplied it by 100 again, producing scores like -1418 or 1860.
+    days_scaler = MinMaxScaler(feature_range=(0, 1))
+    tasks_scaler = MinMaxScaler(feature_range=(0, 1))
+    days_scaled = days_scaler.fit_transform(df[['avg_task_days']].fillna(0)).flatten()
+    tasks_scaled = tasks_scaler.fit_transform(df[['completed_tasks']].fillna(0)).flatten()
+
     raw_scores = (
         0.4 * df['completion_rate'].fillna(0) +
-        0.3 * (1 - mm.fit_transform(df[['avg_task_days']].fillna(0)).flatten()) +
-        0.3 * mm.fit_transform(df[['completed_tasks']].fillna(0)).flatten()
+        0.3 * (1 - days_scaled) +
+        0.3 * tasks_scaled
     )
     df['performance_score'] = np.round(raw_scores * 100, 1)
 
