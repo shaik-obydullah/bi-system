@@ -34,29 +34,20 @@ Built with **Flask + scikit-learn + Facebook Prophet** and deployed via **Docker
 
 Sample dashboards rendered from each endpoint (synthetic data; generators in `docs/tools/*.py`, full write-ups in `docs/models/`):
 
-**Module 1 — Product Performance Analysis**
-
-<p align="center"><img src="screenshots/01-product-analysis-dashboard.png" alt="Product Analysis dashboard" width="100%"/></p>
-
-**Module 2 — Employee Performance Evaluation**
-
-<p align="center"><img src="screenshots/02-employee-performance-dashboard.png" alt="Employee Performance dashboard" width="100%"/></p>
-
-**Module 3 — Sales Forecast (Linear Regression)**
-
-<p align="center"><img src="screenshots/03-sales-forecast-dashboard.png" alt="Sales Forecast dashboard" width="100%"/></p>
-
-**Module 4 — Sales Forecast (Facebook Prophet)**
-
-<p align="center"><img src="screenshots/04-prophet-forecast-dashboard.png" alt="Prophet Forecast dashboard" width="100%"/></p>
-
-**Module 5 — Product Recommendations**
-
-<p align="center"><img src="screenshots/05-product-recommendations-dashboard.png" alt="Product Recommendations dashboard" width="100%"/></p>
-
-**Module 6 — Market Basket Analysis (Apriori)**
-
-<p align="center"><img src="screenshots/06-product-combos-dashboard.png" alt="Market Basket Analysis dashboard" width="100%"/></p>
+<table>
+  <tr>
+    <td align="center" width="50%"><strong>1 — Product Performance</strong><br/><img src="screenshots/01-product-analysis-dashboard.png" alt="Product Analysis dashboard" width="100%"/></td>
+    <td align="center" width="50%"><strong>2 — Employee Performance</strong><br/><img src="screenshots/02-employee-performance-dashboard.png" alt="Employee Performance dashboard" width="100%"/></td>
+  </tr>
+  <tr>
+    <td align="center" width="50%"><strong>3 — Sales Forecast (Linear Regression)</strong><br/><img src="screenshots/03-sales-forecast-dashboard.png" alt="Sales Forecast dashboard" width="100%"/></td>
+    <td align="center" width="50%"><strong>4 — Sales Forecast (Prophet)</strong><br/><img src="screenshots/04-prophet-forecast-dashboard.png" alt="Prophet Forecast dashboard" width="100%"/></td>
+  </tr>
+  <tr>
+    <td align="center" width="50%"><strong>5 — Product Recommendations</strong><br/><img src="screenshots/05-product-recommendations-dashboard.png" alt="Product Recommendations dashboard" width="100%"/></td>
+    <td align="center" width="50%"><strong>6 — Market Basket Analysis</strong><br/><img src="screenshots/06-product-combos-dashboard.png" alt="Market Basket Analysis dashboard" width="100%"/></td>
+  </tr>
+</table>
 
 ---
 
@@ -120,6 +111,19 @@ DB_PASSWORD=your_password
 # Required: every API call must send this value in the X-API-Key header.
 BI_API_KEY=$(openssl rand -hex 32)
 ```
+
+| Variable | Default | Purpose |
+| -------- | ------- | ------- |
+| `FLASK_HOST` / `FLASK_PORT` | `0.0.0.0` / `5000` | Bind address and port inside the container |
+| `FLASK_DEBUG` | `0` | Flask debug mode; keep `0` in production |
+| `DB_HOST` / `DB_PORT` | `erp_mariadb` / `3306` | ERP MariaDB connection |
+| `DB_NAME` | `laravel_db` | ERP database name |
+| `DB_USER` / `DB_PASSWORD` | `bi_ro` / — | SELECT-only database account |
+| `MODEL_DIR` | `/app/ml_models` | Directory for `.joblib` models and cached payloads |
+| `BI_API_KEY` | — | **Required**; every request must send it in `X-API-Key` |
+| `FORECAST_CACHE_TTL` | `21600` (6 h) | Forecast cache lifetime in seconds |
+| `API_PREFIX` | `/api` | Base prefix; endpoints are served under `{API_PREFIX}/v1` |
+| `ENABLE_LEGACY_API` | `1` | Also serve the legacy `{API_PREFIX}` alias; set `0` to disable |
 
 Use a SELECT-only MariaDB account for `DB_USER`:
 
@@ -266,7 +270,7 @@ bi-system/
 │   │   └── internal.py                # Cache refresh + cache status
 │   └── ml_models/              # Trained .joblib models + cached JSON payloads
 ├── README.md
-└── docs/                       # Module documentation, dashboard images, HTML export (gitignored)
+└── docs/                       # Module documentation, dashboard images, HTML export
     ├── AI Agents.md            # AI agent onboarding guide
     ├── Case Study.md           # Comprehensive case study
     ├── models/                 # In-depth per-module write-ups (Markdown)
@@ -291,4 +295,4 @@ half-written file.
 
 ## 📜 License
 
-MIT
+[MIT](LICENSE)
