@@ -21,12 +21,12 @@ Built with **Flask + scikit-learn + Facebook Prophet** and deployed via **Docker
 
 | Module                                 | Technique                                                 | Endpoint                             |
 | -------------------------------------- | --------------------------------------------------------- | ------------------------------------ |
-| 📦 **Product Performance Analysis**    | K-Means clustering + weighted scoring                     | `POST /api/product-analysis`         |
-| 👥 **Employee Performance Evaluation** | K-Means + Isolation Forest anomaly detection              | `POST /api/analyze`                  |
-| 📈 **Sales Forecast**                  | Linear Regression with train/test split                   | `GET /api/sales-forecast`            |
-| 🔮 **Prophet Forecast**                | Facebook Prophet (seasonality + trend)                    | `GET /api/prophet-forecast`          |
-| 🛒 **Product Recommendations**         | KNN content-based + collaborative filtering + trending    | `POST /api/recommendations/products` |
-| 🧺 **Market Basket Analysis**          | Apriori algorithm (frequent itemsets + association rules) | `GET /api/product-combos`            |
+| 📦 **Product Performance Analysis**    | K-Means clustering + weighted scoring                     | `GET/POST /api/v1/product-analysis` |
+| 👥 **Employee Performance Evaluation** | K-Means + Isolation Forest anomaly detection              | `POST /api/v1/analyze`               |
+| 📈 **Sales Forecast**                  | Linear Regression with train/test split                   | `GET /api/v1/sales-forecast`         |
+| 🔮 **Prophet Forecast**                | Facebook Prophet (seasonality + trend)                    | `GET /api/v1/prophet-forecast`       |
+| 🛒 **Product Recommendations**         | KNN content-based + collaborative filtering + trending    | `POST /api/v1/recommendations/products` |
+| 🧺 **Market Basket Analysis**          | Apriori algorithm (frequent itemsets + association rules) | `GET /api/v1/product-combos`         |
 
 ---
 
@@ -75,7 +75,7 @@ Sample dashboards rendered from each endpoint (synthetic data; generators in `do
 ```
 
 - 🌐 **Nginx** — reverse proxy, request routing, timeout tuning
-- 🧠 **Flask App** — 6 route blueprints, lazy model loading, joblib persistence
+- 🧠 **Flask App** — 7 route blueprints, lazy model loading, joblib persistence
 - 🗄️ **MariaDB** — shared external ERP database (not managed by this container)
 - 💾 **Trained models** saved as `.joblib` files under `ml_models/`
 
@@ -83,7 +83,7 @@ Sample dashboards rendered from each endpoint (synthetic data; generators in `do
 
 ## 🧰 Tech Stack
 
-- **Backend:** 🐍 Python 3.11, ⚗️ Flask 3.0, Flask-SQLAlchemy, Flask-CORS
+- **Backend:** 🐍 Python 3.11, ⚗️ Flask 3.0, Flask-SQLAlchemy
 - **ML/DL:** 📐 scikit-learn, pandas, numpy, mlxtend (Apriori), Facebook Prophet
 - **Infrastructure:** 🐳 Docker, Docker Compose, Nginx
 - **Storage:** 🗄️ PyMySQL, joblib (model serialization)
@@ -173,9 +173,9 @@ curl -H "X-API-Key: $BI_API_KEY" http://bi_nginx:80/api/v1/sales-forecast
 
 Responses always include `X-Request-ID`; send your own to correlate logs.
 
-### `POST /api/v1/product-analysis`
+### `GET/POST /api/v1/product-analysis`
 
-Analyzes all active products using K-Means clustering + weighted scoring (revenue, stock ratio, sales velocity, profit margin).
+Analyzes all active products using K-Means clustering + weighted scoring (revenue 40%, stock ratio 20%, sales velocity 20%, profit margin 20%).
 
 ```json
 // Response
@@ -189,7 +189,7 @@ Analyzes all active products using K-Means clustering + weighted scoring (revenu
 
 ### `POST /api/v1/analyze`
 
-Evaluates employee performance based on task completion rates, task velocity, and identifies anomalies (Isolation Forest).
+Evaluates employee performance based on task completion rates, average task duration, and completed task count, and identifies anomalies (Isolation Forest).
 
 ### `GET /api/v1/sales-forecast`
 
@@ -205,7 +205,7 @@ Multiple recommendation strategies via JSON body:
 
 ```json
 {
-  "strategy": "popular|trending|content_based|collaborative|personalized",
+  "strategy": "popular|trending|content_based|collaborative|personalized|similar_users",
   "product_id": 123, // for content_based
   "user_id": 456, // for collaborative / personalized
   "limit": 10
@@ -231,7 +231,7 @@ success|partial`, or `500` when every target failed. Concurrent calls return `40
 // Laravel: run nightly so dashboard requests stay fast
 $schedule->call(fn () => Http::withHeaders(['X-API-Key' => config('services.bi.key')])
     ->timeout(300)
-    ->post(config('services.bi.url').'/api/v1/internal/refresh'))->dailyAt('02:00');
+    ->post(config('services.bi.url').'/internal/refresh'))->dailyAt('02:00');
 ```
 
 ### `GET /api/v1/internal/cache-status`
@@ -254,7 +254,7 @@ bi-system/
 │   ├── app.py                  # Flask app factory, auth, health, blueprint registration
 │   ├── cache_utils.py          # Atomic JSON cache + .joblib writes
 │   ├── models/
-│   │   └── __init__.py         # All SQLAlchemy ORM models (15 tables)
+│   │   └── __init__.py         # All SQLAlchemy ORM models (16 tables)
 │   ├── routes/
 │   │   ├── __init__.py
 │   │   ├── employee_performance.py    # K-Means + Isolation Forest
@@ -265,14 +265,14 @@ bi-system/
 │   │   ├── prophet_forecast.py        # Facebook Prophet
 │   │   └── internal.py                # Cache refresh + cache status
 │   └── ml_models/              # Trained .joblib models + cached JSON payloads
-├── docs/                       # Module documentation, dashboard images, HTML export
-│   ├── models/                 # In-depth per-module write-ups (Markdown)
-│   ├── images/                 # Generated demo dashboard PNGs
-│   ├── html/                   # HTML export of the Markdown docs
-│   └── tools/                  # Demo dashboard generators + md_to_html.py
 ├── README.md
-├── AGENTS.md                   # AI agent onboarding guide
-└── case-study.md               # Comprehensive case study
+└── docs/                       # Module documentation, dashboard images, HTML export (gitignored)
+    ├── AI Agents.md            # AI agent onboarding guide
+    ├── Case Study.md           # Comprehensive case study
+    ├── models/                 # In-depth per-module write-ups (Markdown)
+    ├── images/                 # Generated demo dashboard PNGs
+    ├── html/                   # HTML export of the Markdown docs
+    └── tools/                  # Demo dashboard generators + md_to_html.py
 ```
 
 ---
